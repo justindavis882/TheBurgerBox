@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout - The Burger Box</title>
+    <style>
+        :root {
+            --primary: #d9381e; 
+            --secondary: #f2a900; 
+            --dark: #222;
+            --light: #f4f4f4;
+            --white: #fff;
+            --success: #4caf50;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: var(--light); color: var(--dark); padding: 1rem; }
+        
+        header { background: var(--dark); color: var(--white); padding: 1rem; text-align: center; border-radius: 8px; margin-bottom: 1rem; }
+        header h1 { font-size: 1.8rem; text-transform: uppercase; letter-spacing: 2px; }
+
+        .checkout-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+        
+        .order-card { background: var(--white); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 5px solid var(--secondary); display: flex; flex-direction: column; }
+        .order-card.ready { border-left-color: var(--success); } /* Green if KDS says Ready */
+        
+        .card-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 1.2rem; margin-bottom: 0.5rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; }
+        .customer-name { color: #666; font-size: 1.1rem; margin-bottom: 1rem; }
+        .order-total { font-size: 1.5rem; font-weight: bold; color: var(--dark); margin: 1rem 0; text-align: center; }
+        
+        .card-actions { display: flex; gap: 0.5rem; margin-top: auto; }
+        .btn-delete { flex: 1; padding: 0.8rem; background: var(--primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-transform: uppercase; }
+        .btn-pay { flex: 2; padding: 0.8rem; background: var(--success); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-transform: uppercase; }
+
+        /* Payment Modal */
+        #payment-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 2rem; border-radius: 8px; width: 90%; max-width: 450px; }
+        .modal-content h2 { text-align: center; margin-bottom: 1rem; color: var(--dark); }
+        
+        .payment-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+        .tab { flex: 1; padding: 0.8rem; text-align: center; background: #eee; cursor: pointer; font-weight: bold; border-radius: 4px; border: 2px solid transparent; }
+        .tab.active { background: var(--secondary); color: var(--dark); border-color: var(--dark); }
+        
+        .payment-section { display: none; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+        .payment-section.active { display: flex; }
+        
+        .payment-section label { font-weight: bold; }
+        .payment-section input { padding: 0.8rem; font-size: 1.2rem; border: 1px solid #ccc; border-radius: 4px; width: 100%; }
+        
+        .change-display { font-size: 1.5rem; font-weight: bold; color: var(--success); text-align: center; padding: 1rem; background: #f9f9f9; border-radius: 4px; border: 1px dashed #ccc;}
+        
+        .modal-buttons { display: flex; gap: 1rem; }
+        .btn-cancel { flex: 1; padding: 1rem; background: #999; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-confirm { flex: 2; padding: 1rem; background: var(--success); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 1.1rem; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Burger Box Checkout</h1>
+    </header>
+
+    <div id="loading" style="text-align: center; padding: 2rem; font-weight: bold;">Syncing Orders...</div>
+    <main class="checkout-grid" id="checkout-grid"></main>
+
+    <!-- Payment Modal -->
+    <div id="payment-modal">
+        <div class="modal-content">
+            <h2>Process Payment</h2>
+            <div style="text-align: center; font-size: 1.5rem; font-weight: bold; margin-bottom: 1.5rem;" id="modal-total-display">$0.00</div>
+            
+            <div class="payment-tabs">
+                <div class="tab active" onclick="switchTab('cash')">Cash</div>
+                <div class="tab" onclick="switchTab('check')">Check</div>
+                <div class="tab" onclick="switchTab('digital')">Digital Card</div>
+            </div>
+
+            <!-- Cash Panel -->
+            <div id="panel-cash" class="payment-section active">
+                <div>
+                    <label>Amount Tendered ($)</label>
+                    <input type="number" id="cash-tendered" step="0.01" placeholder="e.g. 20.00" autocomplete="off">
+                </div>
+                <div class="change-display">
+                    Change Due: <span id="change-due">$0.00</span>
+                </div>
+            </div>
+
+            <!-- Check Panel -->
+            <div id="panel-check" class="payment-section">
+                <div>
+                    <label>Check Number</label>
+                    <input type="text" id="check-number" placeholder="Enter Check #" autocomplete="off">
+                </div>
+            </div>
+
+            <!-- Digital Card Panel -->
+            <div id="panel-digital" class="payment-section">
+                <div>
+                    <label>App Transaction ID</label>
+                    <input type="text" id="digital-id" placeholder="Enter ID/Auth Code" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="modal-buttons">
+                <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+                <button class="btn-confirm" id="btn-confirm-pay" onclick="submitPayment()">Complete Order</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION: PASTE YOUR APPS SCRIPT URL HERE
+        // ==========================================
+        const API_URL = "https://script.google.com/macros/s/AKfycbwrG5cJ4aup0HhVwD4ltxglDnX6dOwjdnXMGFWLQakgTgz153nt-GmgKmMIS6X-FWhh/exec"; 
+        
+        let checkoutOrders = [];
+        let currentOrderToPay = null;
+        let currentPaymentMethod = 'cash';
+
+        // Fetch Orders
+        async function fetchOrders() {
+            try {
+                const response = await fetch(`${API_URL}?action=get_checkout`);
+                const result = await response.json();
+                
+                if (result.status === "success") {
+                    checkoutOrders = result.data;
+                    renderCheckout();
+                } else {
+                    document.getElementById("loading").innerText = "Error syncing.";
+                }
+            } catch (error) {
+                console.error("Fetch Error:", error);
+                document.getElementById("loading").innerText = "Network Error.";
+            }
+        }
+
+        // Render Grid
+        function renderCheckout() {
+            const grid = document.getElementById("checkout-grid");
+            document.getElementById("loading").style.display = "none";
+            grid.innerHTML = "";
+            
+            if (checkoutOrders.length === 0) {
+                grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 2rem;">No orders awaiting checkout.</div>`;
+                return;
+            }
+
+            checkoutOrders.forEach(order => {
+                const card = document.createElement("div");
+                card.className = `order-card ${order.KDS_Status === 'Ready' ? 'ready' : ''}`;
+                card.id = `order-${order.OrderID}`;
+                
+                const total = parseFloat(order.TotalAmount).toFixed(2);
+                
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span>${order.OrderID}</span>
+                        <span style="font-size: 0.9rem; color: #888;">${order.KDS_Status}</span>
+                    </div>
+                    <div class="customer-name">${order.CustomerName}</div>
+                    <div class="order-total">$${total}</div>
+                    <div class="card-actions">
+                        <button class="btn-delete" onclick="deleteOrder('${order.OrderID}')">Delete</button>
+                        <button class="btn-pay" onclick="openPaymentModal('${order.OrderID}', ${total})">Pay Out</button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // Delete Order (Mark REMOVED)
+        async function deleteOrder(orderId) {
+            if (!confirm(`Are you sure you want to mark ${orderId} as REMOVED?`)) return;
+            
+            // Optimistic UI Removal
+            document.getElementById(`order-${orderId}`).remove();
+            
+            try {
+                await fetch(API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({ action: "delete_order", orderId: orderId })
+                });
+            } catch (error) {
+                alert("Failed to sync deletion with sheets.");
+            }
+        }
+
+        // --- Payment Modal Logic ---
+
+        function openPaymentModal(orderId, total) {
+            currentOrderToPay = { orderId, total };
+            document.getElementById("modal-total-display").innerText = `Total: $${total.toFixed(2)}`;
+            document.getElementById("payment-modal").style.display = "flex";
+            
+            // Reset fields
+            document.getElementById("cash-tendered").value = "";
+            document.getElementById("change-due").innerText = "$0.00";
+            document.getElementById("check-number").value = "";
+            document.getElementById("digital-id").value = "";
+            switchTab('cash');
+        }
+
+        function closeModal() {
+            document.getElementById("payment-modal").style.display = "none";
+            currentOrderToPay = null;
+        }
+
+        function switchTab(method) {
+            currentPaymentMethod = method;
+            
+            // Update tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            
+            // Update panels
+            document.querySelectorAll('.payment-section').forEach(p => p.classList.remove('active'));
+            document.getElementById(`panel-${method}`).classList.add('active');
+        }
+
+        // Cash Calculator
+        document.getElementById("cash-tendered").addEventListener("input", function(e) {
+            if (!currentOrderToPay) return;
+            const tendered = parseFloat(e.target.value) || 0;
+            const change = tendered - currentOrderToPay.total;
+            
+            const changeDisplay = document.getElementById("change-due");
+            if (change >= 0) {
+                changeDisplay.innerText = `$${change.toFixed(2)}`;
+                changeDisplay.style.color = "var(--success)";
+            } else {
+                changeDisplay.innerText = `Need $${Math.abs(change).toFixed(2)} more`;
+                changeDisplay.style.color = "var(--primary)";
+            }
+        });
+
+        // Submit Payment
+        async function submitPayment() {
+            const btn = document.getElementById("btn-confirm-pay");
+            let paymentString = "";
+
+            // Validate based on selected method
+            if (currentPaymentMethod === 'cash') {
+                const tendered = parseFloat(document.getElementById("cash-tendered").value) || 0;
+                if (tendered < currentOrderToPay.total) {
+                    return alert("Cash tendered is less than the total amount!");
+                }
+                paymentString = "Cash";
+            } 
+            else if (currentPaymentMethod === 'check') {
+                const checkNum = document.getElementById("check-number").value.trim();
+                if (!checkNum) return alert("Please enter the check number.");
+                paymentString = `Check #${checkNum}`;
+            } 
+            else if (currentPaymentMethod === 'digital') {
+                const txId = document.getElementById("digital-id").value.trim();
+                if (!txId) return alert("Please enter the transaction ID.");
+                paymentString = `Digital - ${txId}`;
+            }
+
+            btn.innerText = "Processing...";
+            btn.disabled = true;
+
+            const payload = {
+                action: "process_payment",
+                orderId: currentOrderToPay.orderId,
+                totalAmount: currentOrderToPay.total,
+                paymentMethod: paymentString
+            };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    // Remove from UI
+                    document.getElementById(`order-${currentOrderToPay.orderId}`).remove();
+                    closeModal();
+                } else {
+                    alert("Error processing payment: " + result.message);
+                }
+            } catch (error) {
+                alert("Network error. Could not record payment.");
+            } finally {
+                btn.innerText = "Complete Order";
+                btn.disabled = false;
+            }
+        }
+
+        // Boot
+        fetchOrders();
+        setInterval(fetchOrders, 5000); // Sync checkout screen every 5 seconds
+    </script>
+</body>
+</html>
