@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KDS - The Burger Box</title>
+    <style>
+        :root {
+            --dark: #121212;
+            --card-bg: #2a2a2a;
+            --text: #ffffff;
+            --warning: #f2a900; /* Mustard Yellow for 10+ mins */
+            --danger: #d9381e;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        body { background-color: var(--dark); color: var(--text); padding: 1rem; height: 100vh; overflow-y: hidden; display: flex; flex-direction: column; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 1rem; border-bottom: 2px solid #444; margin-bottom: 1rem; }
+        header h1 { font-size: 1.5rem; text-transform: uppercase; letter-spacing: 2px; }
+        
+        .status-indicator { display: flex; align-items: center; gap: 10px; font-weight: bold; }
+        .dot { height: 15px; width: 15px; background-color: #4caf50; border-radius: 50%; display: inline-block; }
+        .dot.syncing { background-color: var(--warning); }
+        .dot.error { background-color: var(--danger); }
+
+        /* KDS Grid */
+        main { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; align-content: flex-start; }
+        
+        .order-card { background: var(--card-bg); border-radius: 8px; padding: 1rem; border-top: 5px solid #444; display: flex; flex-direction: column; cursor: pointer; user-select: none; transition: background 0.3s, border-color 0.3s; }
+        
+        .order-card.late { background: #3d3111; border-top-color: var(--warning); }
+        .order-card.late .time-waiting { color: var(--warning); font-weight: bold; }
+
+        .card-header { display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
+        .order-id { font-size: 1.2rem; font-weight: bold; }
+        .time-waiting { font-size: 1.1rem; }
+        
+        .customer-name { font-size: 1.1rem; margin-bottom: 1rem; color: #aaa; text-transform: uppercase; }
+        
+        .order-items { flex: 1; font-size: 1.1rem; line-height: 1.5; white-space: pre-wrap; }
+        
+        .card-footer { margin-top: 1rem; text-align: center; font-size: 0.85rem; color: #777; text-transform: uppercase; }
+
+        /* Hidden Print IFrame */
+        #print-frame { display: none; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Burger Box KDS</h1>
+        <div class="status-indicator">
+            <span id="sync-dot" class="dot"></span>
+            <span id="sync-text">Live</span>
+        </div>
+    </header>
+
+    <main id="kds-grid"></main>
+
+    <!-- Hidden iframe used to generate thermal receipt print jobs -->
+    <iframe id="print-frame"></iframe>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION: PASTE YOUR APPS SCRIPT URL HERE
+        // ==========================================
+        const API_URL = "https://script.google.com/macros/s/AKfycbzOumqkbHaCSjDyZwEFivIy2t_-ZaKyVOkG2YoUrFVymBGny5oppL8oc8obtLUbUh77/exec"; 
+        
+        let pendingOrders = [];
+        let timerInterval;
+
+        // Fetch Orders from Sheets
+        async function fetchOrders() {
+            setSyncStatus('syncing', 'Syncing...');
+            try {
+                // Notice the ?action=get_orders added to the URL
+                const response = await fetch(`${API_URL}?action=get_orders`);
+                const result = await response.json();
+                
+                if (result.status === "success") {
+                    pendingOrders = result.data;
+                    renderKDS();
+                    setSyncStatus('live', 'Live');
+                } else {
+                    console.error("API Error:", result.message);
+                    setSyncStatus('error', 'Error');
+                }
+            } catch (error) {
+                console.error("Fetch Error:", error);
+                setSyncStatus('error', 'Offline');
+            }
+        }
+
+        // Render the Grid
+        function renderKDS() {
+            const grid = document.getElementById("kds-grid");
+            grid.innerHTML = "";
+            
+            if (pendingOrders.length === 0) {
+                grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 2rem;">No pending orders. Waiting for a rush.</div>`;
+                return;
+            }
+
+            pendingOrders.forEach(order => {
+                const card = document.createElement("div");
+                card.className = "order-card";
+                card.id = `card-${order.OrderID}`;
+                
+                // Double tap event
+                card.addEventListener("dblclick", () => completeOrder(order));
+
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="order-id">${order.OrderID}</span>
+                        <span class="time-waiting" id="timer-${order.OrderID}">0:00</span>
+                    </div>
+                    <div class="customer-name">${order.CustomerName}</div>
+                    <div class="order-items">${formatItemsForDisplay(order.OrderDetails)}</div>
+                    <div class="card-footer">Double-Tap to Bump & Print</div>
+                `;
+                
+                grid.appendChild(card);
+            });
+
+            updateTimers(); // Run once immediately
+        }
+
+        // Clean up the string formatting for the kitchen screen
+        function formatItemsForDisplay(detailsStr) {
+            return detailsStr.replace(/;\n/g, '\n').replace(/;/g, '\n');
+        }
+
+        // Update Wait Times & Yellow Shading
+        function updateTimers() {
+            const now = new Date();
+            
+            pendingOrders.forEach(order => {
+                const orderTime = new Date(order.Timestamp);
+                const diffMs = now - orderTime;
+                
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffSecs = Math.floor((diffMs % 60000) / 1000);
+                
+                const timerEl = document.getElementById(`timer-${order.OrderID}`);
+                const cardEl = document.getElementById(`card-${order.OrderID}`);
+                
+                if (timerEl && cardEl) {
+                    timerEl.innerText = `${diffMins}:${diffSecs.toString().padStart(2, '0')}`;
+                    
+                    // Mark as late if older than 10 minutes (600000 ms)
+                    if (diffMs > 600000) {
+                        cardEl.classList.add("late");
+                    }
+                }
+            });
+        }
+
+        // Bump Order, Update API, and Print Ticket
+        async function completeOrder(order) {
+            // Optimistically remove from DOM for fast feel
+            const cardEl = document.getElementById(`card-${order.OrderID}`);
+            if (cardEl) cardEl.remove();
+            
+            // Generate print ticket
+            printTicket(order);
+
+            // Update Sheet
+            const payload = {
+                action: "update_kds",
+                orderId: order.OrderID,
+                newStatus: "Ready"
+            };
+
+            try {
+                await fetch(API_URL, {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                });
+            } catch (error) {
+                console.error("Failed to update status in sheets:", error);
+                // In a production app, you might queue this to retry later
+            }
+        }
+
+        // Inject HTML into iframe and call print()
+        function printTicket(order) {
+            const iframe = document.getElementById("print-frame");
+            const doc = iframe.contentWindow.document;
+            
+            const printHTML = `
+                <html>
+                <head>
+                    <style>
+                        body { font-family: monospace; width: 300px; margin: 0; padding: 10px; color: #000; }
+                        h2 { text-align: center; margin: 0 0 10px 0; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+                        .ticket-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-weight: bold; }
+                        .customer { font-size: 1.5em; text-align: center; margin-bottom: 15px; border-bottom: 1px dashed #000; padding-bottom: 10px;}
+                        .items { font-size: 1.1em; line-height: 1.4; white-space: pre-wrap; margin-bottom: 20px;}
+                        .footer { text-align: center; font-size: 0.9em; border-top: 1px dashed #000; padding-top: 10px;}
+                    </style>
+                </head>
+                <body>
+                    <h2>THE BURGER BOX</h2>
+                    <div class="ticket-header">
+                        <span>${order.OrderID}</span>
+                        <span>${new Date(order.Timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    </div>
+                    <div class="customer">${order.CustomerName}</div>
+                    <div class="items">${formatItemsForDisplay(order.OrderDetails)}</div>
+                    <div class="footer">Please bring this to checkout.</div>
+                </body>
+                </html>
+            `;
+            
+            doc.open();
+            doc.write(printHTML);
+            doc.close();
+            
+            // Wait briefly for content to load before printing
+            setTimeout(() => {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+            }, 250);
+        }
+
+        // UI Helpers
+        function setSyncStatus(status, text) {
+            const dot = document.getElementById('sync-dot');
+            dot.className = 'dot ' + status;
+            document.getElementById('sync-text').innerText = text;
+        }
+
+        // Boot
+        fetchOrders(); // Initial load
+        setInterval(fetchOrders, 15000); // Poll API every 15 seconds
+        setInterval(updateTimers, 1000); // Update on-screen timers every second
+    </script>
+</body>
+</html>
