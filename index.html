@@ -6,8 +6,8 @@
     <title>The Burger Box - Order Now</title>
     <style>
         :root {
-            --primary: #d9381e; /* Burger Box Red */
-            --secondary: #f2a900; /* Mustard Yellow */
+            --primary: #d9381e; 
+            --secondary: #f2a900; 
             --dark: #222;
             --light: #f4f4f4;
             --white: #fff;
@@ -39,7 +39,8 @@
         .cart-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 1.2rem; margin-bottom: 1rem; }
         
         .cart-items { max-height: 150px; overflow-y: auto; margin-bottom: 1rem; }
-        .cart-item { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .cart-item { display: flex; justify-content: space-between; margin-bottom: 0.8rem; font-size: 0.95rem; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 0.5rem;}
+        .cart-item:last-child { border-bottom: none; }
         
         .checkout-form { display: flex; gap: 0.5rem; flex-direction: column; }
         .checkout-form input { padding: 0.8rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
@@ -50,6 +51,16 @@
         #success-screen { display: none; text-align: center; padding: 3rem 1rem; background: var(--white); border-radius: 8px; margin: 2rem auto; max-width: 500px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         #success-screen h2 { color: var(--primary); margin-bottom: 1rem; }
         .order-number { font-size: 2.5rem; font-weight: bold; color: var(--secondary); margin: 1.5rem 0; letter-spacing: 2px; }
+
+        /* Options Modal */
+        #options-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 2rem; border-radius: 8px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+        .modal-content h3 { color: var(--primary); margin-bottom: 1.5rem; text-transform: uppercase; }
+        .modal-content label { font-weight: bold; display: block; margin-bottom: 0.5rem; }
+        .modal-content select { width: 100%; padding: 0.8rem; margin-bottom: 1.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
+        .modal-buttons { display: flex; gap: 1rem; }
+        .btn-cancel { flex: 1; padding: 1rem; background: #999; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-add { flex: 1; padding: 1rem; background: var(--primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -63,6 +74,34 @@
         <div id="menu-container"></div>
     </main>
 
+    <!-- Options Modal -->
+    <div id="options-modal">
+        <div class="modal-content">
+            <h3 id="modal-title">Customize Box</h3>
+            
+            <div id="main-choice-container" style="display: none;">
+                <label>Choose Main:</label>
+                <select id="main-select"></select>
+            </div>
+            
+            <div>
+                <label>Choose Side:</label>
+                <select id="side-select"></select>
+            </div>
+
+            <div>
+                <label>Choose Drink:</label>
+                <select id="drink-select"></select>
+            </div>
+
+            <div class="modal-buttons">
+                <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+                <button class="btn-add" onclick="confirmBoxSelection()">Add to Cart</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Screen -->
     <div id="success-screen">
         <h2>Order Received!</h2>
         <p>Please wait for your name or number to be called.</p>
@@ -70,6 +109,7 @@
         <button onclick="resetApp()" style="padding: 10px 20px; background: var(--dark); color: white; border: none; border-radius: 4px; cursor: pointer;">Place Another Order</button>
     </div>
 
+    <!-- Cart Footer -->
     <div class="cart-container" id="cart-container" style="display: none;">
         <div class="cart-header">
             <span>Your Order</span>
@@ -90,6 +130,7 @@
         
         let menuData = [];
         let cart = [];
+        let selectedBoxItem = null;
 
         // Initialize App
         async function init() {
@@ -132,7 +173,7 @@
                     const price = parseFloat(item.Price).toFixed(2);
                     const card = document.createElement("div");
                     card.className = "menu-item";
-                    card.onclick = () => addToCart(item);
+                    card.onclick = () => handleItemClick(item);
                     card.innerHTML = `
                         <div>
                             <div class="item-header">
@@ -151,13 +192,79 @@
             });
         }
 
-        // Add item to cart
-        function addToCart(item) {
-            const existingItem = cart.find(cartItem => cartItem.ItemID === item.ItemID);
+        // Handle Item Click (Routing to Modal or Direct Cart)
+        function handleItemClick(item) {
+            if (item.Category === 'Boxes') {
+                openOptionsModal(item);
+            } else {
+                addFinalItemToCart(item, "");
+            }
+        }
+
+        // Open Options Modal
+        function openOptionsModal(item) {
+            selectedBoxItem = item;
+            document.getElementById("modal-title").innerText = `Customize ${item.ItemName}`;
+            
+            // Dynamically populate Sides from menuData
+            const sides = menuData.filter(m => m.Category === 'Sides');
+            const sideSelect = document.getElementById("side-select");
+            sideSelect.innerHTML = sides.map(s => `<option value="${s.ItemName}">${s.ItemName}</option>`).join("");
+            
+            // Dynamically populate Drinks from menuData
+            const drinks = menuData.filter(m => m.Category === 'Drinks');
+            const drinkSelect = document.getElementById("drink-select");
+            drinkSelect.innerHTML = drinks.map(d => `<option value="${d.ItemName}">${d.ItemName}</option>`).join("");
+
+            // Handle Chicken Box (B003) specific main choices
+            const mainContainer = document.getElementById("main-choice-container");
+            if (item.ItemID === 'B003') {
+                mainContainer.style.display = "block";
+                const mainSelect = document.getElementById("main-select");
+                mainSelect.innerHTML = `
+                    <option value="Classic Chicken Sandwich">Classic Chicken Sandwich</option>
+                    <option value="Chicken Tenders - 3pc">Chicken Tenders - 3pc</option>
+                `;
+            } else {
+                mainContainer.style.display = "none";
+            }
+
+            document.getElementById("options-modal").style.display = "flex";
+        }
+
+        // Close Modal
+        function closeModal() {
+            document.getElementById("options-modal").style.display = "none";
+            selectedBoxItem = null;
+        }
+
+        // Confirm Box Selections
+        function confirmBoxSelection() {
+            if (!selectedBoxItem) return;
+            
+            const side = document.getElementById("side-select").value;
+            const drink = document.getElementById("drink-select").value;
+            let optionsStr = `[Side: ${side} | Drink: ${drink}]`;
+            
+            if (selectedBoxItem.ItemID === 'B003') {
+                const main = document.getElementById("main-select").value;
+                optionsStr = `[Main: ${main} | Side: ${side} | Drink: ${drink}]`;
+            }
+
+            addFinalItemToCart(selectedBoxItem, optionsStr);
+            closeModal();
+        }
+
+        // Add Final Item to Cart Array
+        function addFinalItemToCart(item, options) {
+            // Create a unique key so identical box builds stack, but different ones separate
+            const cartKey = item.ItemID + options;
+            const existingItem = cart.find(cartItem => cartItem.cartKey === cartKey);
+            
             if (existingItem) {
                 existingItem.qty += 1;
             } else {
-                cart.push({ ...item, qty: 1 });
+                cart.push({ ...item, qty: 1, options: options, cartKey: cartKey });
             }
             updateCartUI();
         }
@@ -172,11 +279,21 @@
                 const itemTotal = parseFloat(cartItem.Price) * cartItem.qty;
                 total += itemTotal;
                 
+                const optionsMarkup = cartItem.options 
+                    ? `<div style="font-size: 0.8rem; color: #666; margin-top: 2px;">${cartItem.options}</div>` 
+                    : "";
+
                 const div = document.createElement("div");
                 div.className = "cart-item";
                 div.innerHTML = `
-                    <span>${cartItem.qty}x ${cartItem.ItemName}</span>
-                    <span>$${itemTotal.toFixed(2)} <span style="color:red; cursor:pointer; margin-left: 10px;" onclick="removeFromCart(${index})">&times;</span></span>
+                    <div style="flex: 1;">
+                        <strong>${cartItem.qty}x ${cartItem.ItemName}</strong>
+                        ${optionsMarkup}
+                    </div>
+                    <div style="text-align: right; min-width: 80px;">
+                        $${itemTotal.toFixed(2)} 
+                        <span style="color:red; cursor:pointer; font-weight:bold; font-size: 1.2rem; margin-left: 10px;" onclick="removeFromCart(${index})">&times;</span>
+                    </div>
                 `;
                 cartItemsContainer.appendChild(div);
             });
@@ -201,8 +318,13 @@
             submitBtn.innerText = "Sending...";
             submitBtn.disabled = true;
 
-            // Format order string (e.g., "1x Classic Burger Box; 2x Seasoned Fries")
-            const orderDetailsStr = cart.map(item => `${item.qty}x ${item.ItemName}`).join("; ");
+            // Format order string to cleanly send to Google Sheets
+            const orderDetailsStr = cart.map(item => {
+                let str = `${item.qty}x ${item.ItemName}`;
+                if (item.options) str += ` ${item.options}`;
+                return str;
+            }).join(";\n");
+
             const totalAmount = cart.reduce((sum, item) => sum + (parseFloat(item.Price) * item.qty), 0);
 
             const payload = {
