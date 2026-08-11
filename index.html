@@ -74,6 +74,13 @@
         <div id="menu-container"></div>
     </main>
 
+    <!-- Paused Screen -->
+    <div id="paused-screen" style="display: none; text-align: center; padding: 3rem 1rem; background: var(--white); border-radius: 8px; margin: 2rem auto; max-width: 500px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+        <h2 style="color: var(--primary); margin-bottom: 1rem;">We are on a quick break!</h2>
+        <p style="font-size: 1.2rem; margin-bottom: 2rem;">The Burger Box is temporarily paused to catch up on orders or restock. Please refresh the page in a few minutes.</p>
+        <button onclick="location.reload()" style="padding: 10px 20px; background: var(--dark); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1.1rem; font-weight: bold;">Check Status</button>
+    </div>
+
     <!-- Options Modal -->
     <div id="options-modal">
         <div class="modal-content">
@@ -137,10 +144,19 @@
             try {
                 const response = await fetch(API_URL);
                 const result = await response.json();
-                
+        
                 if (result.status === "success") {
-                    menuData = result.data.filter(item => item.Status === "Available");
-                    renderMenu();
+                    if (result.storeStatus === "paused") {
+                        // Show paused screen
+                        document.getElementById("loading").style.display = "none";
+                        document.getElementById("app-content").style.display = "none";
+                        document.getElementById("cart-container").style.display = "none";
+                        document.getElementById("paused-screen").style.display = "block";
+                    } else {
+                        // Load menu normally
+                        menuData = result.data.filter(item => item.Status === "Available");
+                        renderMenu();
+                    }
                 } else {
                     document.getElementById("loading").innerText = "Error loading menu.";
                 }
