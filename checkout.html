@@ -57,8 +57,11 @@
 </head>
 <body>
 
-    <header>
+    <header style="display: flex; justify-content: space-between; align-items: center;">
         <h1>Burger Box Checkout</h1>
+        <button id="store-toggle-btn" onclick="toggleStoreStatus()" style="padding: 10px 20px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; background: var(--success); color: white;">
+            Loading Status...
+        </button>
     </header>
 
     <div id="loading" style="text-align: center; padding: 2rem; font-weight: bold;">Syncing Orders...</div>
@@ -120,15 +123,16 @@
         let currentOrderToPay = null;
         let currentPaymentMethod = 'cash';
 
-        // Fetch Orders
+        // Fetch orders rom database
         async function fetchOrders() {
             try {
                 const response = await fetch(`${API_URL}?action=get_checkout`);
                 const result = await response.json();
-                
+        
                 if (result.status === "success") {
                     checkoutOrders = result.data;
                     renderCheckout();
+                    updateStoreToggleUI(result.storeStatus); // <--- ADD THIS LINE
                 } else {
                     document.getElementById("loading").innerText = "Error syncing.";
                 }
@@ -190,7 +194,6 @@
         }
 
         // --- Payment Modal Logic ---
-
         function openPaymentModal(orderId, total) {
             currentOrderToPay = { orderId, total };
             document.getElementById("modal-total-display").innerText = `Total: $${total.toFixed(2)}`;
@@ -289,6 +292,48 @@
                 alert("Network error. Could not record payment.");
             } finally {
                 btn.innerText = "Complete Order";
+                btn.disabled = false;
+            }
+        }
+
+        let currentStoreStatus = "open";
+
+        // Call this inside fetchOrders() right after getting the result
+        function updateStoreToggleUI(status) {
+            currentStoreStatus = status;
+            const btn = document.getElementById("store-toggle-btn");
+            if (status === "open") {
+                btn.style.background = "var(--primary)"; // Red button to pause
+                btn.innerText = "Pause Store (Currently OPEN)";
+            } else {
+                btn.style.background = "var(--success)"; // Green button to open
+                btn.innerText = "Resume Store (Currently PAUSED)";
+            }
+        }
+        
+        // New Function to Toggle Status
+        async function toggleStoreStatus() {
+            const btn = document.getElementById("store-toggle-btn");
+            btn.innerText = "Switching...";
+            btn.disabled = true;
+        
+            const newStatus = currentStoreStatus === "open" ? "paused" : "open";
+        
+            try {
+                const response = await fetch(API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({ action: "toggle_status", newStatus: newStatus })
+                });
+                const result = await response.json();
+        
+                if (result.status === "success") {
+                    updateStoreToggleUI(result.storeStatus);
+                } else {
+                    alert("Failed to toggle status.");
+                }
+            } catch (error) {
+                alert("Network error.");
+            } finally {
                 btn.disabled = false;
             }
         }
