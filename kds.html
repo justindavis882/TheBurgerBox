@@ -140,8 +140,8 @@
                 const orderTime = new Date(order.Timestamp);
                 const diffMs = now - orderTime;
                 
-                const diffMins = Math.floor(diffMs / 60000);
-                const diffSecs = Math.floor((diffMs % 60000) / 1000);
+                const diffMins = Math.floor(diffMs / 6000);
+                const diffSecs = Math.floor((diffMs % 6000) / 1000);
                 
                 const timerEl = document.getElementById(`timer-${order.OrderID}`);
                 const cardEl = document.getElementById(`card-${order.OrderID}`);
